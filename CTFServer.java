@@ -10,6 +10,7 @@ public class CTFServer {
 	static final int PORT = 10101;
 	static final int GOAL_FPS = 20;
 	static final int MAX_SCORE = 5;
+	static final int FLAG_DELAY = 20;
 
 	static Set<Client>   clients = new HashSet<Client>();
 	static Set<Path2D>     level = new HashSet<Path2D>();
@@ -127,11 +128,13 @@ public class CTFServer {
 					}
 					else if (f.orange != target.orange && target.flag == null) {
 						// capture enemy flag by coming close to it when you aren't carrying anything
+						f.capturetimer = 0;
 						f.carried = true;
 						target.flag = f;
 					}
 					else if (f.orange == target.orange && target.flag != null && atBase(f)) {
 						// score by bringing enemy flag to your flag when it is at your base
+						f.capturetimer = FLAG_DELAY;
 						target.flag.carried = false;
 						target.flag.x = target.flag.bx;
 						target.flag.y = target.flag.by;
@@ -186,7 +189,14 @@ public class CTFServer {
 			// camera tracking
 			target.cx += (target.x - target.cx) / 10;
 			target.cy += (target.y - target.cy) / 10;
+
+			if (target.killtimer > 0) { target.killtimer--; }
 		}
+
+		for(Flag f : flags) {
+			if (f.capturetimer > 0) { f.capturetimer--; }
+		}
+
 		if (done && donetimer > 0) { donetimer--; }
 		else if (done) {
 			done = false;
@@ -207,6 +217,7 @@ public class CTFServer {
 					o.mode = Mode.Dead;
 					o.spawntimer = 30;
 					c.kills++;
+					c.killtimer = 6;
 					if (o.flag != null) {
 						o.flag.carried = false;
 						o.flag.x = o.x;
@@ -275,6 +286,7 @@ public class CTFServer {
 
 	static void render(Client c, Set<Client> all) throws IOException {
 		c.beginFrame();
+		c.wobble = 0;
 		c.stroke(0xFF000000);
 
 		c.relative = true;
@@ -295,6 +307,14 @@ public class CTFServer {
 			if (!f.carried) {
 				c.fill(f.orange ? 0xFFFFAA00 : 0xFFAAAAFF);
 				c.center(VectorFont.text("P"), f.x+10, f.y-10, 20);
+			}
+			if (f.capturetimer > 0) {
+				c.fill(0x00FFFFFF);
+				c.ngon(f.bx, f.by,
+					Client.easeQuart(FLAG_DELAY - f.capturetimer, FLAG_DELAY, 1, 300),
+					9,
+					f.capturetimer / 30.0 * Math.PI
+				);
 			}
 		}
 		c.wobble = 0;
@@ -330,10 +350,11 @@ public class CTFServer {
 			c.relative = false;
 			c.wobble = 4;
 			c.center(VectorFont.text((orange > blue ? "ORANGE" : "BLUE") + " TEAM WINS"), 320, 20, 40);
+
 			c.wobble = 0;
 			c.center(VectorFont.text("ORANGE " + orange), 160,   70, 20);
-			c.center(VectorFont.text("BLUE "   +   blue), 160*3, 70, 20);
-			
+			c.center(VectorFont.text("BLUE "   +   blue), 160*3, 70, 20);	
+
 			int z1 = 0;
 			for(Client a : all) {
 				if (!a.orange) { continue; }
@@ -383,9 +404,31 @@ public class CTFServer {
 			}
 			c.relative = false;
 			c.wobble = 0;
-			c.center(VectorFont.text(c.name + " " + c.kills), 320, 10, 20);
-			c.center(VectorFont.text("ORANGE " + orange), 160,   460, 20);
-			c.center(VectorFont.text("BLUE "   + blue  ), 160*3, 460, 20);
+			c.center(VectorFont.text(c.name),     640/3,   10, 20);
+
+			// calculate flag status for HUD routines:
+			boolean orangeHeld = false;
+			boolean   blueHeld = false;
+			int orangeflagtime = 0;
+			int   blueflagtime = 0;
+			for(Flag f : flags) {
+				orangeHeld |=  f.orange && f.carried;
+				  blueHeld |= !f.orange && f.carried;
+				orangeflagtime = Math.max(orangeflagtime,  f.orange ? f.capturetimer-(FLAG_DELAY-7) : 0);
+				  blueflagtime = Math.max(  blueflagtime, !f.orange ? f.capturetimer-(FLAG_DELAY-7) : 0);
+			}
+
+			double killscale = Math.sin(Math.PI * 2.0 / 6 * (6-c.killtimer));
+			c.wobble = 3 * killscale;
+			c.center(VectorFont.text(""+c.kills), 640/3*2, 10, 20 + (20 * killscale));
+
+			double orangescale = Math.sin(Math.PI * 2.0 / 7 * (7-orangeflagtime));
+			c.wobble = (orangeHeld ? 3 : 0) + (3 * orangescale);
+			c.center(VectorFont.text("ORANGE " + orange), 160,   460, 20 + (10 * orangescale));
+
+			double   bluescale = Math.sin(Math.PI * 2.0 / 7 * (7-blueflagtime));
+			c.wobble = (  blueHeld ? 3 : 0) + (3 *   bluescale);
+			c.center(VectorFont.text("BLUE "   + blue  ), 160*3, 460, 20 + (10 * bluescale));
 		}
 
 		c.endFrame();
@@ -427,6 +470,7 @@ class Client extends Thread {
 
 	Flag flag = null;
 	int kills = 0;
+	int killtimer = 0;
 
 	// player position and velocity
 	double x  = 0;
@@ -626,8 +670,29 @@ class Client extends Thread {
 		poly(line);
 	}
 
-	private double lerp(double a, double b, double t) {
+	void ngon(double x, double y, double radius, int sides, double spin) throws IOException {
+		Path2D s = new Path2D.Double();
+		s.moveTo(
+			x + radius * Math.cos(spin),
+			y + radius * Math.sin(spin)
+		);
+		for(int z = 1; z < sides; z++) {
+			s.lineTo(
+				x + radius * Math.cos((Math.PI * 2 / sides * z) + spin),
+				y + radius * Math.sin((Math.PI * 2 / sides * z) + spin)
+			);
+		}
+		s.closePath();
+		poly(s);
+	}
+
+	static double lerp(double a, double b, double t) {
 		return a*(1-t) + b*(t);
+	}
+
+	static double easeQuart(double t, double duration, double start, double delta) {
+		t = t / duration - 1;
+		return -delta * (t*t*t*t - 1) + start; // ease out
 	}
 
 	void poly(Shape s) throws IOException {
@@ -677,6 +742,7 @@ class Flag {
 	double x = 0;
 	double y = 0;
 	boolean carried = false;
+	int capturetimer = 0;
 
 	public Flag(int x, int y) {
 		this(x, y, true);
