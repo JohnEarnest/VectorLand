@@ -1,0 +1,181 @@
+<html>
+<head>
+	<title>VectorLand HTML5</title>
+<style>
+	div {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		margin:-240px 0 0 -320px;
+	}
+</style>
+</head>
+<body bgcolor="#000000">
+<div>
+	<canvas id="target" width="640" height="480"/>
+</div>
+
+<script type="text/javascript">
+
+	/**
+	* Connection management:
+	**/
+
+	function connect() {
+		s = new WebSocket("ws://localhost:10106");
+		s.binaryType = "arraybuffer";
+		s.onopen    = connected;
+		s.onclose   = disconnect;
+		s.onerror   = disconnect;
+		s.onmessage = drawFrame;
+	}
+
+	function disconnect(event) {
+		g.fillStyle = "#FFFFFF";
+		g.fillRect(0, 0, 640, 480);
+		g.font = "9pt Courier";
+		g.fillStyle = "#000000";
+		g.fillText("no connection to server. :(", 10, 10);
+		setTimeout(connect, 5000);
+	}
+	
+	function connected(event) {
+		console.log("established connection with server.");
+	}
+	
+	/**
+	* Utilities:
+	**/
+
+	function write32(array, index, val) {
+		array[index  ] = (val >> 24) & 0xFF;
+		array[index+1] = (val >> 16) & 0xFF;
+		array[index+2] = (val >>  8) & 0xFF;
+		array[index+3] = (val      ) & 0xFF;
+	}
+
+	function extend(lead, mask, val) {
+		if ((lead & 0x80) != 0) {
+			val |= (-1 & (~lead));
+		}
+		return val;
+	}
+
+	function read32(array, index) {
+		return extend(array[index], 0xFFFFFFFF,
+				(array[index  ] << 24) |
+				(array[index+1] << 16) |
+				(array[index+2] <<  8) |
+				(array[index+3])
+		);
+	}
+
+	function read16(array, index) {
+		return extend(array[index], 0xFFFF,
+			(array[index  ] << 8) |
+			(array[index+1])
+		);
+	}
+
+	function readColor(array, index) {
+		return "rgba("
+			+ array[index  ] + ","
+			+ array[index+1] + ","
+			+ array[index+2] + ","
+			+ array[index+3] + ")";
+	}
+
+	/**
+	* Rendering:
+	**/
+
+	function drawFrame(event) {
+		g.fillStyle = "#FFFFFF";
+		g.fillRect(0, 0, 640, 480);
+		
+		if (!(event.data instanceof ArrayBuffer)) {
+			throw "what is this bullshit";
+		}
+
+		var raw = new Uint8Array(event.data);
+		var index = 0;
+		while(index < raw.length) {
+			switch(raw[index++]) {
+				case 1:
+					g.fillStyle   = readColor(raw, index); index += 4; break;
+				case 2:
+					g.strokeStyle = readColor(raw, index); index += 4; break;
+				case 3:
+					var size = read32(raw, index) - 1; index += 4;
+					g.beginPath();
+					g.moveTo(read16(raw, index), read16(raw, index+2)); index += 4;
+					while (size --> 0) {
+						g.lineTo(read16(raw, index), read16(raw, index+2)); index += 4;
+					}
+					g.closePath();
+					g.fill();
+					g.stroke();
+					break;
+				default:
+					throw "I have no idea what to do with this drawing command, fu & die";
+			}
+		}
+	}
+
+	/**
+	* Input handlers:
+	**/
+
+	function mouseMove(event) {
+		var r = c.getBoundingClientRect();
+		var raw = new Uint8Array(9);
+		raw[0] = 5;
+		write32(raw, 1, event.clientX - r.left);
+		write32(raw, 5, event.clientY - r.top);
+		if (s.readyState == 1) { s.send(raw.buffer); }
+	}
+
+	function mouseDown(event) {
+		var raw = new Uint8Array(1);
+		raw[0] = 3;
+		if (s.readyState == 1) { s.send(raw.buffer); }
+	}
+
+	function mouseUp(event) {
+		var raw = new Uint8Array(1);
+		raw[0] = 4;
+		if (s.readyState == 1) { s.send(raw.buffer); }
+	}
+
+	function keyDown(event) {
+		var raw = new Uint8Array(5);
+		raw[0] = 0;
+		write32(raw, 1, event.keyCode);
+		if (s.readyState == 1) { s.send(raw.buffer); }
+	}
+
+	function keyUp(event) {
+		var raw = new Uint8Array(5);
+		raw[0] = 1;
+		write32(raw, 1, event.keyCode);
+		if (s.readyState == 1) { s.send(raw.buffer); }
+	}
+
+	/**
+	* Initialization:
+	**/
+
+	var c = document.getElementById("target");
+	var g = c.getContext("2d");
+	var s;
+
+	c.addEventListener("mousemove", mouseMove, false);
+	c.addEventListener("mousedown", mouseDown, false);
+	c.addEventListener("mouseup"  , mouseUp  , false);
+	window.addEventListener("keydown", keyDown, false);
+	window.addEventListener("keyup"  , keyUp  , false);
+	connect();
+
+</script>
+</body>
+</html>
