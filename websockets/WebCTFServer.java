@@ -565,13 +565,14 @@ class Client extends Thread {
 			}
 		}
 		catch(IOException e) {
-			System.out.println("client has disconnected.");
+			System.out.format("client %s has disconnected.%n", name);
 			if (flag != null) {
 				flag.carried = false;
 				flag.x = x;
 				flag.y = y;
 			}
 			synchronized(WebCTFServer.clients) { WebCTFServer.clients.remove(this); }
+			synchronized(WebCTFServer.names)   { WebCTFServer.names.add(this.name); }
 		}
 	}
 
