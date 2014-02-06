@@ -60,9 +60,13 @@ public class WebCTFServer {
 		}
 	}
 
+	static void log(String format, Object... args) {
+		System.out.format("[%s]: %s%n", new Date(), String.format(format, args));
+	}
+
 	public static void main(String[] args) throws IOException {
 		Listener listener = new Listener(PORT);
-		System.out.println("ready. waiting for clients...");
+		log("ready. waiting for clients...");
 		listener.start();
 
 		while(true) {
@@ -142,6 +146,7 @@ public class WebCTFServer {
 						if (target.orange) { orange++; } else { blue++; }
 						if (orange >= MAX_SCORE || blue >= MAX_SCORE) {
 							done = true;
+							log("round complete, %s wins.", (orange>blue)? "orange" : "blue");
 							donetimer = 300;
 							for(Flag of : flags) {
 								of.carried = false;
@@ -254,7 +259,7 @@ public class WebCTFServer {
 		for(Client target : targets) {
 			try { render(target, targets); }
 			catch(IOException e) {
-				System.out.format("client %s has disconnected.%n", target.name);
+				WebCTFServer.log("client %s has disconnected.", target.name);
 				synchronized(clients) { clients.remove(target); }
 				synchronized(names) { names.add(target.name); }
 			}
@@ -517,7 +522,7 @@ class Client extends Thread {
 			orange = team < 0;
 			WebCTFServer.clients.add(this);
 		}
-		System.out.format("client %s has connected from %s.%n", name, s.getInetAddress());
+		WebCTFServer.log("client %s has connected from %s.", name, s.getInetAddress());
 	}
 
 	private int readInt(byte[] m, int offset) {
@@ -560,12 +565,12 @@ class Client extends Thread {
 						break;
 					default:
 						//throw new Error("unknown input op " + op);
-						System.out.println("unknown input op");
+						WebCTFServer.log("unknown input op " + op);
 				}
 			}
 		}
 		catch(IOException e) {
-			System.out.format("client %s has disconnected.%n", name);
+			WebCTFServer.log("client %s has disconnected.", name);
 			if (flag != null) {
 				flag.carried = false;
 				flag.x = x;
